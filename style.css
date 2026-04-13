@@ -1,0 +1,431 @@
+/* ================================================
+   SMARTGRID — IoT Dashboard Stylesheet
+   Style: Industrial SCADA / Control Panel
+   ================================================ */
+
+/* ---------- CSS VARIABLES (easy to change later) ---------- */
+:root {
+  --bg-base:       #0a0c10;   /* Deep dark background */
+  --bg-panel:      #0f1318;   /* Card background */
+  --bg-card:       #131820;   /* Card inner */
+  --border:        #1e2a38;   /* Subtle border */
+  --border-bright: #253040;
+
+  --accent-cyan:   #00d4ff;   /* Primary highlight */
+  --accent-blue:   #0077cc;
+  --accent-dim:    #1a4060;
+
+  /* Status colours */
+  --green:         #00e676;
+  --yellow:        #ffea00;
+  --red:           #ff1744;
+
+  /* Text */
+  --text-primary:  #d0e8f5;
+  --text-secondary:#5a7a90;
+  --text-muted:    #2a4055;
+
+  /* Fonts */
+  --font-mono:     'Share Tech Mono', monospace;
+  --font-ui:       'Barlow Condensed', sans-serif;
+}
+
+/* ---------- RESET & BASE ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  min-height: 100vh;
+  /* subtle grid texture for SCADA feel */
+  background-image:
+    linear-gradient(rgba(0,212,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ---------- TOP BAR ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 28px;
+  background: var(--bg-panel);
+  border-bottom: 2px solid var(--accent-cyan);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  /* Faint glow at top */
+  box-shadow: 0 0 30px rgba(0,212,255,0.12);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  font-size: 22px;
+  color: var(--accent-cyan);
+  line-height: 1;
+}
+
+.logo-text {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  color: var(--accent-cyan);
+  letter-spacing: 3px;
+}
+
+.logo-sub {
+  color: var(--text-secondary);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Blinking system status dot */
+.sys-status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  animation: blink 1.4s infinite;
+  box-shadow: 0 0 8px var(--green);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.sys-status-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--green);
+  letter-spacing: 2px;
+}
+
+.clock {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--accent-cyan);
+  letter-spacing: 2px;
+}
+
+/* ---------- ALERT TICKER BAR ---------- */
+.alert-bar {
+  background: #0c1520;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 28px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  display: flex;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.alert-label {
+  color: var(--accent-cyan);
+  white-space: nowrap;
+  letter-spacing: 1px;
+}
+
+.alert-text {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  /* Scroll effect for long alerts */
+  animation: ticker 18s linear infinite;
+}
+
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-60%); }
+}
+
+/* ---------- MAIN GRID ---------- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+  padding: 24px 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ---------- ROOM CARD ---------- */
+.room-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent-blue);
+  border-radius: 4px;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.4s, box-shadow 0.4s;
+  /* Soft inner glow on hover */
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.4);
+}
+
+.room-card:hover {
+  border-top-color: var(--accent-cyan);
+  box-shadow: 0 0 20px rgba(0,212,255,0.08), inset 0 0 40px rgba(0,0,0,0.4);
+}
+
+/* Corner bracket decoration (top-right) */
+.room-card::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 24px; height: 24px;
+  border-top: 2px solid var(--accent-cyan);
+  border-right: 2px solid var(--accent-cyan);
+  opacity: 0.4;
+}
+
+/* ---------- CARD HEADER ---------- */
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,119,204,0.07);
+}
+
+.room-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+}
+
+.room-num {
+  color: var(--accent-cyan);
+}
+
+.room-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  flex: 1;
+  color: var(--text-primary);
+}
+
+/* Status badge in card header */
+.card-status-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border: 1px solid;
+  border-radius: 2px;
+  letter-spacing: 1.5px;
+  /* Default: normal (green) */
+  color: var(--green);
+  border-color: var(--green);
+  background: rgba(0,230,118,0.05);
+  transition: all 0.3s;
+}
+
+.card-status-badge.warning {
+  color: var(--yellow);
+  border-color: var(--yellow);
+  background: rgba(255,234,0,0.05);
+}
+
+.card-status-badge.critical {
+  color: var(--red);
+  border-color: var(--red);
+  background: rgba(255,23,68,0.05);
+  animation: pulse-red 1s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: none; }
+  50%       { box-shadow: 0 0 8px rgba(255,23,68,0.5); }
+}
+
+/* ---------- METRICS ROW ---------- */
+.metrics-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 14px 14px;
+  gap: 8px;
+}
+
+.metric-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+}
+
+.metric-icon {
+  font-size: 20px;
+  line-height: 1;
+  margin-bottom: 2px;
+  opacity: 0.7;
+}
+
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  text-align: center;
+}
+
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  color: var(--accent-cyan);
+  line-height: 1;
+  text-shadow: 0 0 12px rgba(0,212,255,0.4);
+  /* Smooth value transitions */
+  transition: color 0.4s;
+}
+
+.metric-unit {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+}
+
+.metric-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  margin-top: 2px;
+  letter-spacing: 1px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary);
+}
+
+/* Center block (big temperature) */
+.center-metric {
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 0 14px;
+}
+
+.big-temp {
+  font-family: var(--font-mono);
+  font-size: 48px;
+  font-weight: 400;
+  color: var(--text-primary);
+  line-height: 1;
+  /* Live text-shadow will be set by JS based on temp */
+  transition: color 0.5s, text-shadow 0.5s;
+}
+
+.big-temp-unit {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* ---------- CHART SECTION ---------- */
+.chart-section {
+  padding: 6px 14px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.chart-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  margin-bottom: 5px;
+}
+
+/* Canvas fills its container width */
+.sparkline {
+  width: 100%;
+  height: 55px;
+  display: block;
+}
+
+/* ---------- STATUS BAR (bottom of card) ---------- */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(0,0,0,0.25);
+  border-top: 1px solid var(--border);
+}
+
+.status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--green);
+  transition: background 0.4s, box-shadow 0.4s;
+}
+
+/* Status dot colour classes applied by JS */
+.status-dot.warning {
+  background: var(--yellow);
+  box-shadow: 0 0 8px var(--yellow);
+}
+.status-dot.critical {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red);
+  animation: blink 0.6s infinite;
+}
+
+.status-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex: 1;
+  letter-spacing: 1px;
+}
+
+/* Flashing tick to show data is live */
+.update-tick {
+  font-size: 8px;
+  color: var(--accent-cyan);
+  animation: tick-flash 2s infinite;
+}
+
+@keyframes tick-flash {
+  0%, 90%, 100% { opacity: 0; }
+  50%            { opacity: 1; }
+}
+
+/* ---------- FOOTER ---------- */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 28px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+  margin-top: 12px;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 600px) {
+  .topbar { flex-wrap: wrap; gap: 8px; }
+  .dashboard-grid { padding: 12px; gap: 14px; }
+  .big-temp { font-size: 36px; }
+  .metric-value { font-size: 20px; }
+  .footer { flex-direction: column; gap: 4px; }
+}

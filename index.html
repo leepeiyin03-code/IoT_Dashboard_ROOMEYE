@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartGrid — Room Monitor</title>
+
+  <!-- Google Fonts: Industrial feel -->
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== TOP HEADER ===== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo-icon">⬡</span>
+      <span class="logo-text">SMARTGRID <span class="logo-sub">// ROOM CONTROL v1.0</span></span>
+    </div>
+    <div class="topbar-center">
+      <span class="sys-status-dot" id="sysStatusDot"></span>
+      <span class="sys-status-label" id="sysStatusLabel">SYSTEM ONLINE</span>
+    </div>
+    <div class="topbar-right">
+      <span class="clock" id="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <!-- ===== ALERT TICKER ===== -->
+  <div class="alert-bar" id="alertBar">
+    <span class="alert-label">▶ ALERTS:</span>
+    <span class="alert-text" id="alertText">Initializing system scan…</span>
+  </div>
+
+  <!-- ===== MAIN GRID ===== -->
+  <main class="dashboard-grid">
+
+    <!-- ===== ROOM CARD (repeated 3×) ===== -->
+    <!-- Each card has the same structure; JS fills in the data -->
+
+    <!-- ROOM 1 -->
+    <article class="room-card" id="room-1">
+      <div class="card-header">
+        <div class="room-id">ZONE <span class="room-num">01</span></div>
+        <div class="room-title">Room 1</div>
+        <div class="card-status-badge" id="badge-1">NORMAL</div>
+      </div>
+
+      <div class="metrics-row">
+        <!-- Light -->
+        <div class="metric-block">
+          <div class="metric-icon">☀</div>
+          <div class="metric-label">LIGHT</div>
+          <div class="metric-value" id="light-val-1">---</div>
+          <div class="metric-unit">lux</div>
+          <div class="metric-sub" id="light-status-1">—</div>
+        </div>
+
+        <!-- Temperature -->
+        <div class="metric-block center-metric">
+          <div class="big-temp" id="temp-val-1">--.-</div>
+          <div class="big-temp-unit">°C</div>
+          <div class="metric-label">TEMPERATURE</div>
+        </div>
+
+        <!-- AC -->
+        <div class="metric-block">
+          <div class="metric-icon">❄</div>
+          <div class="metric-label">A/C UNIT</div>
+          <div class="metric-value" id="ac-val-1">---</div>
+          <div class="metric-unit">level</div>
+          <div class="metric-sub" id="ac-status-1">—</div>
+        </div>
+      </div>
+
+      <!-- Mini sparkline chart -->
+      <div class="chart-section">
+        <div class="chart-label">TEMP TREND — LAST 10 READINGS</div>
+        <canvas class="sparkline" id="chart-1" width="320" height="55"></canvas>
+      </div>
+
+      <!-- Status indicator bar -->
+      <div class="status-bar">
+        <div class="status-dot" id="dot-1"></div>
+        <div class="status-text" id="status-text-1">Awaiting data…</div>
+        <div class="update-tick" id="tick-1">⬛</div>
+      </div>
+    </article>
+
+    <!-- ROOM 2 -->
+    <article class="room-card" id="room-2">
+      <div class="card-header">
+        <div class="room-id">ZONE <span class="room-num">02</span></div>
+        <div class="room-title">Room 2</div>
+        <div class="card-status-badge" id="badge-2">NORMAL</div>
+      </div>
+
+      <div class="metrics-row">
+        <div class="metric-block">
+          <div class="metric-icon">☀</div>
+          <div class="metric-label">LIGHT</div>
+          <div class="metric-value" id="light-val-2">---</div>
+          <div class="metric-unit">lux</div>
+          <div class="metric-sub" id="light-status-2">—</div>
+        </div>
+
+        <div class="metric-block center-metric">
+          <div class="big-temp" id="temp-val-2">--.-</div>
+          <div class="big-temp-unit">°C</div>
+          <div class="metric-label">TEMPERATURE</div>
+        </div>
+
+        <div class="metric-block">
+          <div class="metric-icon">❄</div>
+          <div class="metric-label">A/C UNIT</div>
+          <div class="metric-value" id="ac-val-2">---</div>
+          <div class="metric-unit">level</div>
+          <div class="metric-sub" id="ac-status-2">—</div>
+        </div>
+      </div>
+
+      <div class="chart-section">
+        <div class="chart-label">TEMP TREND — LAST 10 READINGS</div>
+        <canvas class="sparkline" id="chart-2" width="320" height="55"></canvas>
+      </div>
+
+      <div class="status-bar">
+        <div class="status-dot" id="dot-2"></div>
+        <div class="status-text" id="status-text-2">Awaiting data…</div>
+        <div class="update-tick" id="tick-2">⬛</div>
+      </div>
+    </article>
+
+    <!-- ROOM 3 -->
+    <article class="room-card" id="room-3">
+      <div class="card-header">
+        <div class="room-id">ZONE <span class="room-num">03</span></div>
+        <div class="room-title">Room 3</div>
+        <div class="card-status-badge" id="badge-3">NORMAL</div>
+      </div>
+
+      <div class="metrics-row">
+        <div class="metric-block">
+          <div class="metric-icon">☀</div>
+          <div class="metric-label">LIGHT</div>
+          <div class="metric-value" id="light-val-3">---</div>
+          <div class="metric-unit">lux</div>
+          <div class="metric-sub" id="light-status-3">—</div>
+        </div>
+
+        <div class="metric-block center-metric">
+          <div class="big-temp" id="temp-val-3">--.-</div>
+          <div class="big-temp-unit">°C</div>
+          <div class="metric-label">TEMPERATURE</div>
+        </div>
+
+        <div class="metric-block">
+          <div class="metric-icon">❄</div>
+          <div class="metric-label">A/C UNIT</div>
+          <div class="metric-value" id="ac-val-3">---</div>
+          <div class="metric-unit">level</div>
+          <div class="metric-sub" id="ac-status-3">—</div>
+        </div>
+      </div>
+
+      <div class="chart-section">
+        <div class="chart-label">TEMP TREND — LAST 10 READINGS</div>
+        <canvas class="sparkline" id="chart-3" width="320" height="55"></canvas>
+      </div>
+
+      <div class="status-bar">
+        <div class="status-dot" id="dot-3"></div>
+        <div class="status-text" id="status-text-3">Awaiting data…</div>
+        <div class="update-tick" id="tick-3">⬛</div>
+      </div>
+    </article>
+
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="footer">
+    <span>SMARTGRID MONITORING SYSTEM</span>
+    <span>SIM MODE — NO LIVE HARDWARE</span>
+    <span>UPDATE INTERVAL: 2s</span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
