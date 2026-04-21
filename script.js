@@ -1,303 +1,420 @@
-/* ================================================
+ /*============================================================
    SMARTGRID — script.js
-   Simulated IoT data engine + UI updater
-   ================================================ */
-
-// ─── CONFIGURATION ──────────────────────────────
-// Change these thresholds easily when you connect
-// real sensors from ESP32 / database later.
+   Full dashboard script: data layer + UI updater combined.
+ 
+   ARCHITECTURE:
+   ┌─────────────────────────────────────────────────┐
+   │  1. CONFIG          — thresholds & settings      │
+   │  2. ROOM REGISTRY   — per-room state storage     │
+   │  3. SIMULATION      — fake sensor data engine    │
+   │  4. getSensorData() — single data entry point    │
+   │  5. CONTROL LOGIC   — AC / light / status rules  │
+   │  6. STATE UPDATE    — history buffer + snapshot  │
+   │  7. UI LAYER        — writes data to HTML        │
+   │  8. CHART           — canvas sparkline drawing   │
+   │  9. CLOCK & ALERTS  — header updates             │
+   │ 10. LOOP            — drives everything          │
+   └─────────────────────────────────────────────────┘
+   ============================================================ */
+ 
+ 
+/* ============================================================
+   SECTION 1 — CONFIGURATION
+   All thresholds in one place. Easy to change later.
+   ============================================================ */
 const CONFIG = {
-  updateInterval: 2000,      // milliseconds between updates
-  tempLow: 22,               // below this: A/C turns OFF (too cold)
-  tempHigh: 24,              // above this: A/C turns ON
-  lightThreshold: 500,       // below this: lights turn ON (lux)
-  historyLength: 10,         // how many past readings to show in chart
+  updateIntervalMs:  2000,   // how often everything updates (ms)
+  historyLength:     10,     // temperature readings kept per room
+  tempThresholdAC:   24.0,   // °C — at or above this, A/C turns ON
+  luxThresholdLight: 500,    // lux — below this, lights turn ON
+ 
+  // Simulation drift limits
+  sim: {
+    tempDriftMax: 0.3,       // max °C change per tick
+    luxDriftMax:  25,        // max lux change per tick
+    tempMin: 18, tempMax: 36,
+    luxMin:  50, luxMax:  1000,
+  },
 };
-
-// ─── ROOM STATE ──────────────────────────────────
-// Each room has a "base" value and a slow drift.
-// This makes the simulation feel realistic, not random.
-const rooms = [
-  {
-    id: 1,
-    name: "Room 1",
-    temp: 24.5,       // starting temperature (°C)
-    light: 480,       // starting light intensity (lux)
-    tempDrift: 0.1,   // how fast temp wanders per tick
-    lightDrift: 15,   // how fast light wanders per tick
-    tempHistory: [],  // stores last N temperature readings for the chart
+ 
+ 
+/* ============================================================
+   SECTION 2 — ROOM REGISTRY (State Storage Layer)
+   Each room has its own isolated state — no shared variables.
+   To add a new room: copy one entry and change id/label/_sim_*.
+   ============================================================ */
+const ROOM_REGISTRY = {
+  1: {
+    id:          1,
+    label:       "Room 1",
+    _sim_temp:   24.5,   // simulation starting temperature
+    _sim_lux:    480,    // simulation starting lux
+    tempHistory: [],     // last N readings — used by sparkline chart
+    luxHistory:  [],
+    latest:      null,   // most recent full snapshot — UI reads this
   },
-  {
-    id: 2,
-    name: "Room 2",
-    temp: 26.2,
-    light: 620,
-    tempDrift: 0.15,
-    lightDrift: 20,
+  2: {
+    id:          2,
+    label:       "Room 2",
+    _sim_temp:   26.2,
+    _sim_lux:    620,
     tempHistory: [],
+    luxHistory:  [],
+    latest:      null,
   },
-  {
-    id: 3,
-    name: "Room 3",
-    temp: 22.8,
-    light: 390,
-    tempDrift: 0.08,
-    lightDrift: 12,
+  3: {
+    id:          3,
+    label:       "Room 3",
+    _sim_temp:   22.8,
+    _sim_lux:    390,
     tempHistory: [],
+    luxHistory:  [],
+    latest:      null,
   },
-];
-
-// ─── ALERT QUEUE ────────────────────────────────
-// We'll collect alerts each cycle and display them.
-let alertQueue = [];
-
-
-// ═══════════════════════════════════════════════
-// 1. SIMULATE NEW DATA
-//    Makes values drift smoothly like real sensors.
-// ═══════════════════════════════════════════════
-function simulateRoom(room) {
-  // Random small change, positive or negative (Gaussian-ish via sum)
-  const tempChange  = (Math.random() - 0.5) * 2 * room.tempDrift;
-  const lightChange = (Math.random() - 0.5) * 2 * room.lightDrift;
-
-  // Apply drift, clamp to realistic ranges
-  room.temp  = clamp(room.temp  + tempChange,  18, 35);
-  room.light = clamp(room.light + lightChange,  50, 1000);
-
-  // Save temperature to history for chart
-  room.tempHistory.push(parseFloat(room.temp.toFixed(1)));
-  if (room.tempHistory.length > CONFIG.historyLength) {
-    room.tempHistory.shift(); // remove oldest reading
-  }
+};
+ 
+ 
+/* ============================================================
+   SECTION 3 — SIMULATION ENGINE
+   Produces smooth, realistic fake sensor readings.
+   Uses gaussian-ish drift so values don't jump randomly.
+ 
+   >>>REPLACE<<< this whole section when connecting real hardware.
+   ============================================================ */
+ 
+/** Advances simulated physics for one room by one tick. */
+function _sim_advancePhysics(room) {
+  const cfg = CONFIG.sim;
+ 
+  // Average of two randoms = bell-curve-like distribution
+  const tempDelta = ((Math.random() + Math.random()) / 2 - 0.5) * 2 * cfg.tempDriftMax;
+  const luxDelta  = ((Math.random() + Math.random()) / 2 - 0.5) * 2 * cfg.luxDriftMax;
+ 
+  room._sim_temp = _clamp(room._sim_temp + tempDelta, cfg.tempMin, cfg.tempMax);
+  room._sim_lux  = _clamp(room._sim_lux  + luxDelta,  cfg.luxMin,  cfg.luxMax);
 }
-
-
-// ═══════════════════════════════════════════════
-// 2. CONTROL LOGIC
-//    Decides A/C level and light state from sensor data.
-// ═══════════════════════════════════════════════
-function getACLevel(temp) {
-  return temp >= CONFIG.tempHigh ? 1 : 0;  // 1 = ON, 0 = OFF
+ 
+/**
+ * Returns a raw simulated reading for one room.
+ * Shape matches what a real sensor/API should also return:
+ *   { roomId, temperature, lux, timestamp }
+ */
+function _sim_getRawReading(roomId) {
+  const room = ROOM_REGISTRY[roomId];
+  _sim_advancePhysics(room);
+  return {
+    roomId:      room.id,
+    temperature: parseFloat(room._sim_temp.toFixed(2)),
+    lux:         parseFloat(room._sim_lux.toFixed(1)),
+    timestamp:   Date.now(),
+  };
 }
-
-function getLightState(lux) {
-  // Rule: if lux < 500, lights turn ON
-  return lux < CONFIG.lightThreshold;
+ 
+ 
+/* ============================================================
+   SECTION 4 — DATA ACCESS (Single Entry Point)
+   getSensorData() is the ONLY function that touches raw data.
+ 
+   >>>REPLACE<<< the one line inside to switch data source:
+ 
+   ESP32 via MQTT:
+     return mqttClient.getLatestReading(roomId);
+ 
+   REST API (Node-RED / backend):
+     const res = await fetch(`/api/rooms/${roomId}/latest`);
+     return await res.json();
+ 
+   Firebase:
+     const snap = await db.ref(`rooms/${roomId}/latest`).get();
+     return snap.val();
+ 
+   Returned object must always have:
+     { roomId, temperature, lux, timestamp }
+   ============================================================ */
+function getSensorData(roomId) {
+  // >>>REPLACE<<< this line with your real data source
+  return _sim_getRawReading(roomId);
 }
-
-
-// ═══════════════════════════════════════════════
-// 3. STATUS LOGIC
-//    Determines colour indicator (green/yellow/red).
-// ═══════════════════════════════════════════════
-function getRoomStatus(temp, lux) {
-  // Critical: extreme temperature or very dark
+ 
+ 
+/* ============================================================
+   SECTION 5 — CONTROL LOGIC
+   Pure functions: take a value, return a decision.
+   No side effects — easy to test or modify independently.
+   ============================================================ */
+ 
+/** Returns true if A/C should be ON. */
+function deriveACState(temp) {
+  return temp >= CONFIG.tempThresholdAC;
+}
+ 
+/** Returns true if lights should be ON. */
+function deriveLightState(lux) {
+  return lux < CONFIG.luxThresholdLight;
+}
+ 
+/** Returns "normal", "warning", or "critical". */
+function deriveRoomStatus(temp, lux) {
   if (temp >= 32 || temp <= 18 || lux < 100) return "critical";
-  // Warning: borderline conditions
   if (temp >= 29 || temp <= 20 || lux < 250) return "warning";
-  // Normal otherwise
   return "normal";
 }
-
-
-// ═══════════════════════════════════════════════
-// 4. UPDATE THE DOM (HTML elements)
-//    This is where simulated data becomes visible.
-// ═══════════════════════════════════════════════
-function updateRoomUI(room) {
-  const { id, temp, light, tempHistory } = room;
-  const acLevel   = getACLevel(temp);
-  const lightOn   = getLightState(light);
-  const status    = getRoomStatus(temp, light);
-
-  // ---- Temperature ----
-  const tempEl = document.getElementById(`temp-val-${id}`);
-  tempEl.textContent = temp.toFixed(1);
-  // Colour-code the big temp number
-  if (temp >= 30)      { tempEl.style.color = '#ff5252'; tempEl.style.textShadow = '0 0 14px rgba(255,82,82,0.5)'; }
-  else if (temp >= 24) { tempEl.style.color = '#ffab40'; tempEl.style.textShadow = '0 0 14px rgba(255,171,64,0.4)'; }
-  else                 { tempEl.style.color = '#40c4ff'; tempEl.style.textShadow = '0 0 14px rgba(64,196,255,0.4)'; }
-
-  // ---- Light ----
-  document.getElementById(`light-val-${id}`).textContent   = Math.round(light);
-  const lightSubEl = document.getElementById(`light-status-${id}`);
-  lightSubEl.textContent  = lightOn ? "ON" : "OFF";
-  lightSubEl.style.color  = lightOn ? "#ffea00" : "#00e676";
-
-  // ---- A/C ----
-  const acVal = document.getElementById(`ac-val-${id}`);
-  const acSub = document.getElementById(`ac-status-${id}`);
-  if (acLevel === 0) {
-    acVal.textContent = "OFF";
-    acVal.style.color = "#5a7a90";
-    acSub.textContent = "Idle";
-    acSub.style.color = "#5a7a90";
-  } else {
-    acVal.textContent = "ON";
-    acVal.style.color = "#00d4ff";
-    acSub.textContent = "Cooling";
-    acSub.style.color = "#00d4ff";
-  }
-
-  // ---- Status badge & dot ----
-  const badge      = document.getElementById(`badge-${id}`);
-  const dot        = document.getElementById(`dot-${id}`);
-  const statusText = document.getElementById(`status-text-${id}`);
-
-  // Remove old classes, apply new
-  badge.className = `card-status-badge ${status === "normal" ? "" : status}`;
-  dot.className   = `status-dot ${status === "normal" ? "" : status}`;
-
-  const statusLabels = {
-    normal:   `All parameters nominal`,
-    warning:  `⚠ Check conditions — temp ${temp.toFixed(1)}°C / lux ${Math.round(light)}`,
-    critical: `✖ ALERT — Immediate attention required`,
+ 
+ 
+/* ============================================================
+   SECTION 6 — STATE UPDATE (History Buffer Layer)
+   Fetches data, applies logic, updates history, stores snapshot.
+   Only this function writes to ROOM_REGISTRY.
+   ============================================================ */
+ 
+/** Fetches and processes one room — updates room.latest */
+function updateRoomState(roomId) {
+  const room    = ROOM_REGISTRY[roomId];
+  const reading = getSensorData(roomId);       // get raw data
+ 
+  const acOn    = deriveACState(reading.temperature);
+  const lightOn = deriveLightState(reading.lux);
+  const status  = deriveRoomStatus(reading.temperature, reading.lux);
+ 
+  // Push to rolling history buffers
+  _pushHistory(room.tempHistory, reading.temperature);
+  _pushHistory(room.luxHistory,  reading.lux);
+ 
+  // Store full snapshot — UI reads only from here
+  room.latest = {
+    roomId:      roomId,
+    label:       room.label,
+    temperature: reading.temperature,
+    lux:         reading.lux,
+    acOn:        acOn,               // true / false
+    lightOn:     lightOn,            // true / false
+    status:      status,             // "normal" | "warning" | "critical"
+    tempHistory: [...room.tempHistory],
+    luxHistory:  [...room.luxHistory],
+    timestamp:   reading.timestamp,
   };
-  badge.textContent      = status.toUpperCase();
-  statusText.textContent = statusLabels[status];
-
-  // ---- Draw the sparkline chart ----
-  drawSparkline(id, tempHistory, status);
-
-  // ---- Collect alerts ----
-  if (status === "critical") {
-    alertQueue.push(`Room ${id}: CRITICAL — T:${temp.toFixed(1)}°C / LUX:${Math.round(light)}`);
-  } else if (status === "warning") {
-    alertQueue.push(`Room ${id}: Warning — T:${temp.toFixed(1)}°C / LUX:${Math.round(light)}`);
-  }
 }
-
-
-// ═══════════════════════════════════════════════
-// 5. SPARKLINE CHART
-//    Draws a tiny line graph on each room's <canvas>.
-// ═══════════════════════════════════════════════
+ 
+/** Returns the latest snapshot for one room. */
+function getRoomSnapshot(roomId) {
+  return ROOM_REGISTRY[roomId]?.latest ?? null;
+}
+ 
+/** Returns all room snapshots as an array. */
+function getAllSnapshots() {
+  return Object.keys(ROOM_REGISTRY).map(id => getRoomSnapshot(Number(id)));
+}
+ 
+ 
+/* ============================================================
+   SECTION 7 — UI LAYER
+   Reads from room.latest and writes to HTML elements.
+   This is the only section that touches the DOM.
+   ============================================================ */
+ 
+/** Updates all HTML elements for one room from its snapshot. */
+function updateRoomUI(snap) {
+  if (!snap) return;
+  const { roomId, temperature, lux, acOn, lightOn, status, tempHistory } = snap;
+ 
+  // ---- Temperature (big number, colour-coded) ----
+  const tempEl = document.getElementById(`temp-val-${roomId}`);
+  if (tempEl) {
+    tempEl.textContent = temperature.toFixed(1);
+    if (temperature >= 30) {
+      tempEl.style.color      = "#ff5252";
+      tempEl.style.textShadow = "0 0 14px rgba(255,82,82,0.5)";
+    } else if (temperature >= 24) {
+      tempEl.style.color      = "#ffab40";
+      tempEl.style.textShadow = "0 0 14px rgba(255,171,64,0.4)";
+    } else {
+      tempEl.style.color      = "#40c4ff";
+      tempEl.style.textShadow = "0 0 14px rgba(64,196,255,0.4)";
+    }
+  }
+ 
+  // ---- Light intensity + ON/OFF state ----
+  const lightValEl = document.getElementById(`light-val-${roomId}`);
+  const lightSubEl = document.getElementById(`light-status-${roomId}`);
+  if (lightValEl) lightValEl.textContent = Math.round(lux);
+  if (lightSubEl) {
+    lightSubEl.textContent = lightOn ? "ON" : "OFF";
+    lightSubEl.style.color = lightOn ? "#ffea00" : "#00e676";
+  }
+ 
+  // ---- A/C ON / OFF ----
+  const acValEl = document.getElementById(`ac-val-${roomId}`);
+  const acSubEl = document.getElementById(`ac-status-${roomId}`);
+  if (acValEl && acSubEl) {
+    if (acOn) {
+      acValEl.textContent = "ON";
+      acValEl.style.color = "#00d4ff";
+      acSubEl.textContent = "Cooling";
+      acSubEl.style.color = "#00d4ff";
+    } else {
+      acValEl.textContent = "OFF";
+      acValEl.style.color = "#5a7a90";
+      acSubEl.textContent = "Idle";
+      acSubEl.style.color = "#5a7a90";
+    }
+  }
+ 
+  // ---- Status badge, dot, and text ----
+  const badge      = document.getElementById(`badge-${roomId}`);
+  const dot        = document.getElementById(`dot-${roomId}`);
+  const statusText = document.getElementById(`status-text-${roomId}`);
+ 
+  if (badge) {
+    badge.className   = `card-status-badge ${status === "normal" ? "" : status}`;
+    badge.textContent = status.toUpperCase();
+  }
+  if (dot) {
+    dot.className = `status-dot ${status === "normal" ? "" : status}`;
+  }
+  if (statusText) {
+    const messages = {
+      normal:   "All parameters nominal",
+      warning:  `⚠ Check conditions — ${temperature.toFixed(1)}°C / ${Math.round(lux)} lux`,
+      critical: "✖ ALERT — Immediate attention required",
+    };
+    statusText.textContent = messages[status];
+  }
+ 
+  // ---- Sparkline chart ----
+  drawSparkline(roomId, tempHistory, status);
+}
+ 
+ 
+/* ============================================================
+   SECTION 8 — SPARKLINE CHART (Canvas API)
+   Draws a mini temperature trend graph on each room card.
+   ============================================================ */
 function drawSparkline(roomId, history, status) {
   const canvas = document.getElementById(`chart-${roomId}`);
-  if (!canvas) return;
-  const ctx    = canvas.getContext("2d");
-  const W      = canvas.width;
-  const H      = canvas.height;
-  const pad    = 4; // inner padding
-
+  if (!canvas || history.length < 2) return;
+ 
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width;
+  const H = canvas.height;
+  const pad = 4;
+ 
   ctx.clearRect(0, 0, W, H);
-
-  if (history.length < 2) return; // not enough data yet
-
+ 
   const min = Math.min(...history) - 1;
   const max = Math.max(...history) + 1;
-
-  // Map temperature value → Y pixel
-  const toY = (v) => pad + (1 - (v - min) / (max - min)) * (H - pad * 2);
-  // Map index → X pixel
+ 
   const toX = (i) => pad + (i / (history.length - 1)) * (W - pad * 2);
-
-  // Choose line colour based on status
+  const toY = (v) => pad + (1 - (v - min) / (max - min)) * (H - pad * 2);
+ 
   const lineColor = { normal: "#00d4ff", warning: "#ffea00", critical: "#ff1744" }[status];
-
-  // Draw faint grid lines
+ 
+  // Faint grid lines
   ctx.strokeStyle = "rgba(255,255,255,0.04)";
-  ctx.lineWidth   = 1;
+  ctx.lineWidth = 1;
   for (let g = 0; g <= 3; g++) {
     const gy = pad + (g / 3) * (H - pad * 2);
     ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(W - pad, gy); ctx.stroke();
   }
-
-  // Draw the filled area under the line
+ 
+  // Filled area under the line
   ctx.beginPath();
   ctx.moveTo(toX(0), H);
   history.forEach((v, i) => ctx.lineTo(toX(i), toY(v)));
   ctx.lineTo(toX(history.length - 1), H);
   ctx.closePath();
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, lineColor + "40"); // semi-transparent top
-  grad.addColorStop(1, lineColor + "00"); // transparent bottom
+  grad.addColorStop(0, lineColor + "40");
+  grad.addColorStop(1, lineColor + "00");
   ctx.fillStyle = grad;
   ctx.fill();
-
-  // Draw the line itself
+ 
+  // Line
   ctx.beginPath();
-  history.forEach((v, i) => {
-    if (i === 0) ctx.moveTo(toX(i), toY(v));
-    else         ctx.lineTo(toX(i), toY(v));
-  });
+  history.forEach((v, i) => i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)));
   ctx.strokeStyle = lineColor;
   ctx.lineWidth   = 1.8;
   ctx.lineJoin    = "round";
   ctx.stroke();
-
-  // Draw a dot at the latest value
-  const lastX = toX(history.length - 1);
-  const lastY = toY(history[history.length - 1]);
+ 
+  // Dot at latest value
+  const lx = toX(history.length - 1);
+  const ly = toY(history[history.length - 1]);
   ctx.beginPath();
-  ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+  ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
   ctx.fillStyle = lineColor;
   ctx.fill();
-
-  // Label min/max on the right
+ 
+  // Min/max labels
   ctx.fillStyle = "rgba(90,122,144,0.8)";
   ctx.font      = "9px 'Share Tech Mono', monospace";
   ctx.fillText(`${max.toFixed(0)}°`, W - 22, pad + 8);
   ctx.fillText(`${min.toFixed(0)}°`, W - 22, H - pad - 2);
 }
-
-
-// ═══════════════════════════════════════════════
-// 6. CLOCK
-// ═══════════════════════════════════════════════
+ 
+ 
+/* ============================================================
+   SECTION 9 — CLOCK & ALERT BAR
+   ============================================================ */
 function updateClock() {
-  const now  = new Date();
-  const h    = String(now.getHours()).padStart(2, "0");
-  const m    = String(now.getMinutes()).padStart(2, "0");
-  const s    = String(now.getSeconds()).padStart(2, "0");
-  document.getElementById("clock").textContent = `${h}:${m}:${s}`;
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const el  = document.getElementById("clock");
+  if (el) el.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
-
-
-// ═══════════════════════════════════════════════
-// 7. ALERT BAR
-// ═══════════════════════════════════════════════
-function updateAlertBar() {
+ 
+function updateAlertBar(snapshots) {
   const el = document.getElementById("alertText");
-  if (alertQueue.length === 0) {
+  if (!el) return;
+ 
+  const alerts = snapshots
+    .filter(s => s && s.status !== "normal")
+    .map(s => `Room ${s.roomId}: ${s.status.toUpperCase()} — ${s.temperature.toFixed(1)}°C / ${Math.round(s.lux)} lux`);
+ 
+  if (alerts.length === 0) {
     el.textContent = "All systems nominal — No active alerts";
     el.style.color = "#5a7a90";
   } else {
-    el.textContent = alertQueue.join("   ◆   ");
-    el.style.color = alertQueue.some(a => a.includes("CRITICAL")) ? "#ff1744" : "#ffea00";
+    el.textContent = alerts.join("   ◆   ");
+    el.style.color = alerts.some(a => a.includes("CRITICAL")) ? "#ff1744" : "#ffea00";
   }
-  alertQueue = []; // reset after displaying
 }
-
-
-// ═══════════════════════════════════════════════
-// 8. MAIN LOOP
-//    Called every 2 seconds — simulate then update.
-// ═══════════════════════════════════════════════
-function mainLoop() {
-  alertQueue = [];
-
-  // Update each room
-  rooms.forEach((room) => {
-    simulateRoom(room);   // step 1: generate new data
-    updateRoomUI(room);   // step 2: push data to HTML
-  });
-
-  updateAlertBar();       // step 3: update alert ticker
-  updateClock();          // step 4: update clock
+ 
+ 
+/* ============================================================
+   SECTION 10 — MAIN LOOP
+   Ties everything together. Runs every 2 seconds.
+   ============================================================ */
+function runCycle() {
+  // Step 1: update data state for all rooms
+  Object.keys(ROOM_REGISTRY).forEach(id => updateRoomState(Number(id)));
+ 
+  // Step 2: get all snapshots and push to UI
+  const snapshots = getAllSnapshots();
+  snapshots.forEach(snap => updateRoomUI(snap));
+ 
+  // Step 3: update header elements
+  updateAlertBar(snapshots);
 }
-
-
-// ─── UTILITY: clamp a number between min and max ───
-function clamp(val, min, max) {
+ 
+// ---- START ----
+updateClock();                                     // clock starts immediately
+runCycle();                                        // first data cycle immediately
+setInterval(runCycle,    CONFIG.updateIntervalMs); // repeats every 2s
+setInterval(updateClock, 1000);                    // clock ticks every 1s
+ 
+ 
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+ 
+/** Pushes value into a fixed-length rolling array. */
+function _pushHistory(arr, val) {
+  arr.push(val);
+  if (arr.length > CONFIG.historyLength) arr.shift();
+}
+ 
+/** Clamps a number between min and max. */
+function _clamp(val, min, max) {
   return Math.min(Math.max(val, min), max);
 }
-
-
-// ─── START ───────────────────────────────────────
-// Run once immediately, then repeat every 2 seconds.
-updateClock();
-mainLoop();
-setInterval(mainLoop,  CONFIG.updateInterval);
-setInterval(updateClock, 1000); // clock updates every second
+ 
