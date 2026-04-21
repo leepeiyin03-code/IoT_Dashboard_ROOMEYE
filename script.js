@@ -10,7 +10,7 @@ const CONFIG = {
   updateInterval: 2000,      // milliseconds between updates
   tempLow: 22,               // below this: A/C turns OFF (too cold)
   tempHigh: 24,              // above this: A/C turns ON
-  lightThreshold: 500,       // higher than this: lights turn ON (lux)
+  lightThreshold: 500,       // below this: lights turn ON (lux)
   historyLength: 10,         // how many past readings to show in chart
 };
 
@@ -78,16 +78,12 @@ function simulateRoom(room) {
 //    Decides A/C level and light state from sensor data.
 // ═══════════════════════════════════════════════
 function getACLevel(temp) {
-  // Rule: if temp >= 24°C, A/C is ON (higher temp = higher level)
-  if (temp < CONFIG.tempHigh) return 0; // OFF
-  if (temp < 27)              return 1; // Mild cooling
-  if (temp < 30)              return 2; // Medium cooling
-  return 3;                             // Max cooling
+  return temp >= CONFIG.tempHigh ? 1 : 0;  // 1 = ON, 0 = OFF
 }
 
 function getLightState(lux) {
   // Rule: if lux < 500, lights turn ON
-  return lux > CONFIG.lightThreshold;
+  return lux < CONFIG.lightThreshold;
 }
 
 
@@ -133,15 +129,15 @@ function updateRoomUI(room) {
   const acVal = document.getElementById(`ac-val-${id}`);
   const acSub = document.getElementById(`ac-status-${id}`);
   if (acLevel === 0) {
-    acVal.textContent     = "OFF";
-    acVal.style.color     = "#5a7a90";
-    acSub.textContent     = "Idle";
-    acSub.style.color     = "#5a7a90";
+    acVal.textContent = "OFF";
+    acVal.style.color = "#5a7a90";
+    acSub.textContent = "Idle";
+    acSub.style.color = "#5a7a90";
   } else {
-    acVal.textContent     = `LV ${acLevel}`;
-    acVal.style.color     = "#00d4ff";
-    acSub.textContent     = ["", "Mild", "Medium", "Max"][acLevel];
-    acSub.style.color     = ["", "#80deea", "#29b6f6", "#0091ea"][acLevel];
+    acVal.textContent = "ON";
+    acVal.style.color = "#00d4ff";
+    acSub.textContent = "Cooling";
+    acSub.style.color = "#00d4ff";
   }
 
   // ---- Status badge & dot ----
